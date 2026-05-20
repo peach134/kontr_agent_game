@@ -8,12 +8,17 @@ import {
   CircleHelp,
   FileSearch,
   Flag,
+  LoaderCircle,
+  RefreshCw,
   RotateCcw,
   ShieldCheck,
   Sparkles,
+  Trophy,
+  UserRound,
   XCircle,
 } from 'lucide-react';
 import { ANSWER_OPTIONS, FINAL_RANKS, GAME_RULE, ROUNDS, validateGameData } from './data/gameData.js';
+import { ensurePlayer, getLeaderboard, submitLeaderboardResult } from './lib/leaderboardApi.js';
 
 const PASS_SCORE = 5;
 const QUESTIONS_PER_ROUND = 10;
@@ -29,6 +34,7 @@ function createInitialGameState() {
     selectedAnswer: null,
     roundScore: 0,
     passedRoundScores: {},
+    player: null,
   };
 }
 
@@ -63,6 +69,7 @@ function normalizeSavedGameState(value) {
     selectedAnswer: value.selectedAnswer === null || VALID_ANSWERS.has(value.selectedAnswer) ? value.selectedAnswer : null,
     roundScore: isIntegerInRange(value.roundScore, 0, QUESTIONS_PER_ROUND) ? value.roundScore : 0,
     passedRoundScores: sanitizePassedScores(value.passedRoundScores),
+    player: normalizeSavedPlayer(value.player),
   };
 
   if (state.screen === 'final' && Object.keys(state.passedRoundScores).length < ROUNDS.length) {
@@ -70,6 +77,28 @@ function normalizeSavedGameState(value) {
   }
 
   return state;
+}
+
+function normalizeSavedPlayer(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const nickname = typeof value.nickname === 'string' ? value.nickname.trim() : '';
+  const nicknameKey = typeof value.nicknameKey === 'string' ? value.nicknameKey.trim() : '';
+
+  if (!nickname || !nicknameKey) {
+    return null;
+  }
+
+  return {
+    nickname,
+    nicknameKey,
+    exists: Boolean(value.exists),
+    bestScore: Number.isInteger(value.bestScore) ? value.bestScore : null,
+    bestRank: typeof value.bestRank === 'string' ? value.bestRank : null,
+    improvedAt: typeof value.improvedAt === 'string' ? value.improvedAt : null,
+  };
 }
 
 function getGameStorage() {
@@ -192,7 +221,8 @@ function getRank(totalScore) {
 
 function App() {
   const [gameState, setGameState] = useState(loadSavedGameState);
-  const { screen, currentRoundIndex, currentQuestionIndex, selectedAnswer, roundScore, passedRoundScores } = gameState;
+  const { screen, currentRoundIndex, currentQuestionIndex, selectedAnswer, roundScore, passedRoundScores, player } =
+    gameState;
 
   const dataCheck = useMemo(() => validateGameData(), []);
   const currentRound = ROUNDS[currentRoundIndex];
@@ -207,10 +237,11 @@ function App() {
     }
   }, [gameState]);
 
-  const startGame = () => {
+  const startGame = (nextPlayer = player, options = {}) => {
     setGameState({
       ...createInitialGameState(),
-      screen: 'roundIntro',
+      player: nextPlayer,
+      screen: nextPlayer || options.anonymous ? 'roundIntro' : 'start',
     });
   };
 
@@ -302,7 +333,14 @@ function App() {
     <main className="app-shell">
       <div className="background-grid" aria-hidden="true" />
       <section className="game-stage">
-        {screen === 'start' && <StartScreen dataCheck={dataCheck} onStart={startGame} />}
+        {screen === 'start' && (
+          <StartScreen
+            dataCheck={dataCheck}
+            savedPlayer={player}
+            onStart={(nextPlayer) => startGame(nextPlayer)}
+            onAnonymousStart={() => startGame(null, { anonymous: true })}
+          />
+        )}
         {screen === 'roundIntro' && <RoundIntroScreen round={currentRound} onStart={() => startRound()} />}
         {screen === 'question' && (
           <QuestionScreen
@@ -326,6 +364,8 @@ function App() {
         {screen === 'final' && (
           <FinalScreen
             totalScore={finalScore}
+            player={player}
+            roundScores={passedRoundScores}
             onRestart={startGame}
             onRepeatLastRound={repeatLastRound}
           />
@@ -335,11 +375,34 @@ function App() {
   );
 }
 
-function StartScreen({ dataCheck, onStart }) {
+function StartScreen({ dataCheck, savedPlayer, onStart, onAnonymousStart }) {
+  const [nickname, setNickname] = useState(savedPlayer?.nickname ?? '');
+  const [nicknameStatus, setNicknameStatus] = useState({ state: 'idle', message: '' });
   const allDataValid =
     dataCheck.hasFourRounds &&
     dataCheck.invalidAnswers.length === 0 &&
     dataCheck.roundQuestionCounts.every((round) => round.valid);
+
+  const submitNickname = async (event) => {
+    event.preventDefault();
+    setNicknameStatus({ state: 'loading', message: 'Проверяем ник...' });
+
+    try {
+      const result = await ensurePlayer(nickname);
+      setNicknameStatus({
+        state: 'success',
+        message: result.player.exists
+          ? `Продолжаем как ${result.player.nickname}. Лучший результат: ${result.player.bestScore}/40.`
+          : `Ник ${result.player.nickname} свободен. Можно начинать.`,
+      });
+      onStart(result.player);
+    } catch (error) {
+      setNicknameStatus({
+        state: 'error',
+        message: error.message,
+      });
+    }
+  };
 
   return (
     <div className="screen start-screen fade-in">
@@ -359,10 +422,37 @@ function StartScreen({ dataCheck, onStart }) {
             <AlertTriangle size={20} />
             <p>{GAME_RULE}</p>
           </div>
-          <button className="primary-button" type="button" onClick={onStart}>
-            Начать игру
-            <ArrowRight size={20} />
-          </button>
+          <form className="nickname-form" onSubmit={submitNickname}>
+            <label htmlFor="nickname">Псевдоним для таблицы лидеров</label>
+            <div className="nickname-row">
+              <input
+                id="nickname"
+                maxLength={20}
+                minLength={2}
+                placeholder="Например, Ваня"
+                type="text"
+                value={nickname}
+                onChange={(event) => setNickname(event.target.value)}
+              />
+              <button className="primary-button" type="submit" disabled={nicknameStatus.state === 'loading'}>
+                {nicknameStatus.state === 'loading' ? 'Проверяем' : 'Начать игру'}
+                {nicknameStatus.state === 'loading' ? <LoaderCircle className="spin" size={20} /> : <ArrowRight size={20} />}
+              </button>
+            </div>
+            {savedPlayer && (
+              <button className="secondary-button saved-player-button" type="button" onClick={() => onStart(savedPlayer)}>
+                Продолжить как {savedPlayer.nickname}
+              </button>
+            )}
+            {nicknameStatus.message && (
+              <p className={`form-message form-message-${nicknameStatus.state}`}>{nicknameStatus.message}</p>
+            )}
+            {nicknameStatus.state === 'error' && (
+              <button className="text-button" type="button" onClick={onAnonymousStart}>
+                Играть без таблицы лидеров
+              </button>
+            )}
+          </form>
         </div>
 
         <div className="rules-panel">
@@ -380,6 +470,8 @@ function StartScreen({ dataCheck, onStart }) {
           </div>
         </div>
       </div>
+
+      <LeaderboardPanel title="Таблица лидеров" compact />
 
       <div className="answer-guide">
         {ANSWER_OPTIONS.map((option, index) => (
@@ -530,9 +622,57 @@ function RoundResultScreen({ round, score, onRepeat, onNextRound }) {
   );
 }
 
-function FinalScreen({ totalScore, onRestart, onRepeatLastRound }) {
+function FinalScreen({ totalScore, player, roundScores, onRestart, onRepeatLastRound }) {
   const rank = getRank(totalScore);
   const isSherlock = rank.title === 'Налоговый Шерлок';
+  const [submitStatus, setSubmitStatus] = useState({
+    state: player ? 'loading' : 'skipped',
+    message: player ? 'Отправляем результат в таблицу лидеров...' : 'Результат не отправлен: игра пройдена без ника.',
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!player) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setSubmitStatus({ state: 'loading', message: 'Отправляем результат в таблицу лидеров...' });
+
+    submitLeaderboardResult({
+      nickname: player.nickname,
+      totalScore,
+      roundScores,
+    })
+      .then((result) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setSubmitStatus({
+          state: result.improved ? 'success' : 'idle',
+          message: result.improved
+            ? `Рекорд обновлён: ${result.entry.bestScore}/40.`
+            : `Лучший результат под этим ником пока выше или такой же: ${result.entry.bestScore}/40.`,
+        });
+      })
+      .catch((error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setSubmitStatus({
+          state: 'error',
+          message: error.message,
+        });
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [player, roundScores, totalScore]);
 
   return (
     <div className="screen final-screen fade-in">
@@ -565,6 +705,9 @@ function FinalScreen({ totalScore, onRestart, onRepeatLastRound }) {
         </p>
         {isSherlock && <p className="sherlock-line">Великолепный результат! Ты настоящий Налоговый Шерлок.</p>}
       </div>
+      {player && <p className="player-line">Игрок: {player.nickname}</p>}
+      <p className={`submit-status submit-status-${submitStatus.state}`}>{submitStatus.message}</p>
+      <LeaderboardPanel title="Таблица лидеров" highlightNickname={player?.nickname} />
       <div className="final-actions">
         <button className="primary-button" type="button" onClick={onRestart}>
           Пройти игру заново
@@ -576,6 +719,99 @@ function FinalScreen({ totalScore, onRestart, onRepeatLastRound }) {
       </div>
     </div>
   );
+}
+
+function LeaderboardPanel({ title, compact = false, highlightNickname }) {
+  const [state, setState] = useState({ status: 'loading', entries: [], message: '' });
+
+  const loadEntries = async () => {
+    setState((current) => ({ ...current, status: 'loading', message: '' }));
+
+    try {
+      const result = await getLeaderboard(compact ? 10 : 20);
+      setState({ status: 'success', entries: result.entries, message: '' });
+    } catch (error) {
+      setState({
+        status: 'error',
+        entries: [],
+        message: error.message,
+      });
+    }
+  };
+
+  useEffect(() => {
+    loadEntries();
+  }, []);
+
+  return (
+    <section className={`leaderboard-panel ${compact ? 'leaderboard-panel-compact' : ''}`}>
+      <div className="leaderboard-header">
+        <div>
+          <div className="panel-header">
+            <Trophy size={22} />
+            <h2>{title}</h2>
+          </div>
+          <p>Лучшие результаты игроков по псевдонимам.</p>
+        </div>
+        <button className="icon-button" type="button" onClick={loadEntries} aria-label="Обновить таблицу лидеров">
+          <RefreshCw size={18} />
+        </button>
+      </div>
+
+      {state.status === 'loading' && (
+        <div className="leaderboard-state">
+          <LoaderCircle className="spin" size={18} />
+          Загружаем рейтинг...
+        </div>
+      )}
+
+      {state.status === 'error' && (
+        <div className="leaderboard-state leaderboard-state-error">
+          {state.message}
+        </div>
+      )}
+
+      {state.status === 'success' && state.entries.length === 0 && (
+        <div className="leaderboard-state">Пока здесь пусто. Первый финальный результат станет началом рейтинга.</div>
+      )}
+
+      {state.status === 'success' && state.entries.length > 0 && (
+        <div className="leaderboard-list">
+          {state.entries.map((entry) => (
+            <div
+              className={`leaderboard-row ${
+                highlightNickname && entry.nickname === highlightNickname ? 'leaderboard-row-current' : ''
+              }`}
+              key={`${entry.place}-${entry.nickname}`}
+            >
+              <span className="leaderboard-place">#{entry.place}</span>
+              <span className="leaderboard-name">
+                <UserRound size={16} />
+                {entry.nickname}
+              </span>
+              <span className="leaderboard-score">{entry.bestScore}/40</span>
+              <span className="leaderboard-rank">{entry.bestRank}</span>
+              <span className="leaderboard-date">{formatDateTime(entry.improvedAt)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return '—';
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
 }
 
 export default App;
