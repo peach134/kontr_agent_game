@@ -8,7 +8,9 @@ import {
   CircleHelp,
   FileSearch,
   Flag,
+  Home,
   LoaderCircle,
+  PlayCircle,
   RefreshCw,
   RotateCcw,
   ShieldCheck,
@@ -24,6 +26,7 @@ const PASS_SCORE = 5;
 const QUESTIONS_PER_ROUND = 10;
 const STORAGE_KEY = 'counterparty-risk-game-state-v1';
 const VALID_SCREENS = new Set(['start', 'roundIntro', 'question', 'roundResult', 'final']);
+const VALID_RESUME_SCREENS = new Set(['roundIntro', 'question', 'roundResult']);
 const VALID_ANSWERS = new Set(ANSWER_OPTIONS.map((option) => option.label));
 
 function createInitialGameState() {
@@ -35,6 +38,7 @@ function createInitialGameState() {
     roundScore: 0,
     passedRoundScores: {},
     player: null,
+    resumeScreen: null,
   };
 }
 
@@ -70,6 +74,7 @@ function normalizeSavedGameState(value) {
     roundScore: isIntegerInRange(value.roundScore, 0, QUESTIONS_PER_ROUND) ? value.roundScore : 0,
     passedRoundScores: sanitizePassedScores(value.passedRoundScores),
     player: normalizeSavedPlayer(value.player),
+    resumeScreen: VALID_RESUME_SCREENS.has(value.resumeScreen) ? value.resumeScreen : null,
   };
 
   if (state.screen === 'final' && Object.keys(state.passedRoundScores).length < ROUNDS.length) {
@@ -219,15 +224,48 @@ function getRank(totalScore) {
   return FINAL_RANKS.find((rank) => totalScore >= rank.min && totalScore <= rank.max) ?? FINAL_RANKS[0];
 }
 
+function getActiveAttemptSummary(state) {
+  if (!VALID_RESUME_SCREENS.has(state.resumeScreen)) {
+    return null;
+  }
+
+  const round = ROUNDS[state.currentRoundIndex];
+  const stageText =
+    state.resumeScreen === 'roundIntro'
+      ? 'Перед началом раунда'
+      : state.resumeScreen === 'roundResult'
+        ? 'Экран результата раунда'
+        : `Вопрос ${state.currentQuestionIndex + 1} из ${QUESTIONS_PER_ROUND}${
+            state.selectedAnswer ? ' — ответ уже выбран' : ''
+          }`;
+
+  return {
+    playerName: state.player?.nickname ?? null,
+    resumeScreen: state.resumeScreen,
+    roundId: round.id,
+    roundTitle: round.title,
+    score: state.roundScore,
+    stageText,
+  };
+}
+
 function App() {
   const [gameState, setGameState] = useState(loadSavedGameState);
-  const { screen, currentRoundIndex, currentQuestionIndex, selectedAnswer, roundScore, passedRoundScores, player } =
-    gameState;
+  const {
+    screen,
+    currentRoundIndex,
+    currentQuestionIndex,
+    selectedAnswer,
+    roundScore,
+    passedRoundScores,
+    player,
+  } = gameState;
 
   const dataCheck = useMemo(() => validateGameData(), []);
   const currentRound = ROUNDS[currentRoundIndex];
   const currentQuestion = currentRound.questions[currentQuestionIndex];
   const finalScore = Object.values(passedRoundScores).reduce((sum, score) => sum + score, 0);
+  const activeAttempt = getActiveAttemptSummary(gameState);
 
   useEffect(() => {
     try {
@@ -253,6 +291,7 @@ function App() {
       currentQuestionIndex: 0,
       selectedAnswer: null,
       roundScore: 0,
+      resumeScreen: null,
     }));
   };
 
@@ -274,6 +313,7 @@ function App() {
         ...state,
         currentQuestionIndex: state.currentQuestionIndex + 1,
         selectedAnswer: null,
+        resumeScreen: null,
       }));
       return;
     }
@@ -281,6 +321,7 @@ function App() {
     setGameState((state) => ({
       ...state,
       screen: 'roundResult',
+      resumeScreen: null,
     }));
   };
 
@@ -295,6 +336,7 @@ function App() {
         ...state,
         screen: 'final',
         passedRoundScores: successfulScores,
+        resumeScreen: null,
       }));
       return;
     }
@@ -307,6 +349,7 @@ function App() {
       selectedAnswer: null,
       roundScore: 0,
       passedRoundScores: successfulScores,
+      resumeScreen: null,
     }));
   };
 
@@ -326,6 +369,23 @@ function App() {
       selectedAnswer: null,
       roundScore: 0,
       passedRoundScores: updatedScores,
+      resumeScreen: null,
+    }));
+  };
+
+  const goHome = () => {
+    setGameState((state) => ({
+      ...state,
+      screen: 'start',
+      resumeScreen: VALID_RESUME_SCREENS.has(state.screen) ? state.screen : state.resumeScreen,
+    }));
+  };
+
+  const resumeAttempt = () => {
+    setGameState((state) => ({
+      ...state,
+      screen: VALID_RESUME_SCREENS.has(state.resumeScreen) ? state.resumeScreen : 'roundIntro',
+      resumeScreen: null,
     }));
   };
 
@@ -335,13 +395,15 @@ function App() {
       <section className="game-stage">
         {screen === 'start' && (
           <StartScreen
+            activeAttempt={activeAttempt}
             dataCheck={dataCheck}
             savedPlayer={player}
+            onResume={resumeAttempt}
             onStart={(nextPlayer) => startGame(nextPlayer)}
             onAnonymousStart={() => startGame(null, { anonymous: true })}
           />
         )}
-        {screen === 'roundIntro' && <RoundIntroScreen round={currentRound} onStart={() => startRound()} />}
+        {screen === 'roundIntro' && <RoundIntroScreen round={currentRound} onHome={goHome} onStart={() => startRound()} />}
         {screen === 'question' && (
           <QuestionScreen
             question={currentQuestion}
@@ -350,6 +412,7 @@ function App() {
             score={roundScore}
             selectedAnswer={selectedAnswer}
             onAnswer={handleAnswer}
+            onHome={goHome}
             onNext={goNext}
           />
         )}
@@ -357,6 +420,7 @@ function App() {
           <RoundResultScreen
             round={currentRound}
             score={roundScore}
+            onHome={goHome}
             onRepeat={repeatCurrentRound}
             onNextRound={goNextRound}
           />
@@ -366,7 +430,7 @@ function App() {
             totalScore={finalScore}
             player={player}
             roundScores={passedRoundScores}
-            onRestart={startGame}
+            onRestart={() => startGame(player, { anonymous: !player })}
             onRepeatLastRound={repeatLastRound}
           />
         )}
@@ -375,13 +439,31 @@ function App() {
   );
 }
 
-function StartScreen({ dataCheck, savedPlayer, onStart, onAnonymousStart }) {
+function StartScreen({ activeAttempt, dataCheck, savedPlayer, onResume, onStart, onAnonymousStart }) {
   const [nickname, setNickname] = useState(savedPlayer?.nickname ?? '');
   const [nicknameStatus, setNicknameStatus] = useState({ state: 'idle', message: '' });
+  const [restartRequest, setRestartRequest] = useState(null);
   const allDataValid =
     dataCheck.hasFourRounds &&
     dataCheck.invalidAnswers.length === 0 &&
     dataCheck.roundQuestionCounts.every((round) => round.valid);
+
+  const requestRestart = (action) => {
+    if (activeAttempt) {
+      setRestartRequest(() => action);
+      return;
+    }
+
+    action();
+  };
+
+  const confirmRestart = () => {
+    if (restartRequest) {
+      restartRequest();
+    }
+
+    setRestartRequest(null);
+  };
 
   const submitNickname = async (event) => {
     event.preventDefault();
@@ -395,7 +477,7 @@ function StartScreen({ dataCheck, savedPlayer, onStart, onAnonymousStart }) {
           ? `Продолжаем как ${result.player.nickname}. Лучший результат: ${result.player.bestScore}/40.`
           : `Ник ${result.player.nickname} свободен. Можно начинать.`,
       });
-      onStart(result.player);
+      requestRestart(() => onStart(result.player));
     } catch (error) {
       setNicknameStatus({
         state: 'error',
@@ -435,24 +517,42 @@ function StartScreen({ dataCheck, savedPlayer, onStart, onAnonymousStart }) {
                 onChange={(event) => setNickname(event.target.value)}
               />
               <button className="primary-button" type="submit" disabled={nicknameStatus.state === 'loading'}>
-                {nicknameStatus.state === 'loading' ? 'Проверяем' : 'Начать игру'}
+                {nicknameStatus.state === 'loading' ? 'Проверяем' : activeAttempt ? 'Начать заново' : 'Начать игру'}
                 {nicknameStatus.state === 'loading' ? <LoaderCircle className="spin" size={20} /> : <ArrowRight size={20} />}
               </button>
             </div>
             {savedPlayer && (
-              <button className="secondary-button saved-player-button" type="button" onClick={() => onStart(savedPlayer)}>
-                Продолжить как {savedPlayer.nickname}
+              <button
+                className="secondary-button saved-player-button"
+                type="button"
+                onClick={() => requestRestart(() => onStart(savedPlayer))}
+              >
+                {activeAttempt ? 'Начать заново как' : 'Продолжить как'} {savedPlayer.nickname}
               </button>
             )}
             {nicknameStatus.message && (
               <p className={`form-message form-message-${nicknameStatus.state}`}>{nicknameStatus.message}</p>
             )}
             {nicknameStatus.state === 'error' && (
-              <button className="text-button" type="button" onClick={onAnonymousStart}>
+              <button className="text-button" type="button" onClick={() => requestRestart(onAnonymousStart)}>
                 Играть без таблицы лидеров
               </button>
             )}
           </form>
+          {activeAttempt && (
+            <ActiveAttemptCard
+              attempt={activeAttempt}
+              hasRestartRequest={Boolean(restartRequest)}
+              onCancelRestart={() => setRestartRequest(null)}
+              onConfirmRestart={confirmRestart}
+              onRestart={() =>
+                requestRestart(() =>
+                  savedPlayer ? onStart(savedPlayer) : onAnonymousStart()
+                )
+              }
+              onResume={onResume}
+            />
+          )}
         </div>
 
         <div className="rules-panel">
@@ -486,9 +586,68 @@ function StartScreen({ dataCheck, savedPlayer, onStart, onAnonymousStart }) {
   );
 }
 
-function RoundIntroScreen({ round, onStart }) {
+function ActiveAttemptCard({
+  attempt,
+  hasRestartRequest,
+  onCancelRestart,
+  onConfirmRestart,
+  onRestart,
+  onResume,
+}) {
+  return (
+    <section className="resume-card">
+      <div>
+        <p className="resume-kicker">Активное прохождение</p>
+        <h2>
+          Раунд {attempt.roundId} — {attempt.roundTitle}
+        </h2>
+        <p>
+          {attempt.stageText}. Текущий счёт: {attempt.score} из {QUESTIONS_PER_ROUND}
+          {attempt.playerName ? ` · игрок ${attempt.playerName}` : ''}.
+        </p>
+      </div>
+      <div className="resume-actions">
+        <button className="primary-button" type="button" onClick={onResume}>
+          Продолжить прохождение
+          <PlayCircle size={20} />
+        </button>
+        <button className="secondary-button" type="button" onClick={onRestart}>
+          Играть заново
+          <RotateCcw size={20} />
+        </button>
+      </div>
+      {hasRestartRequest && (
+        <div className="restart-confirmation">
+          <p>Начать заново? Текущее прохождение будет сброшено.</p>
+          <div>
+            <button className="secondary-button" type="button" onClick={onCancelRestart}>
+              Отмена
+            </button>
+            <button className="primary-button" type="button" onClick={onConfirmRestart}>
+              Да, начать заново
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HomeButton({ onClick }) {
+  return (
+    <button className="secondary-button home-button" type="button" onClick={onClick}>
+      <Home size={18} />
+      На главную
+    </button>
+  );
+}
+
+function RoundIntroScreen({ round, onHome, onStart }) {
   return (
     <div className="screen centered-screen fade-in">
+      <div className="screen-top-actions">
+        <HomeButton onClick={onHome} />
+      </div>
       <div className="round-kicker">
         <Flag size={20} />
         Раунд {round.id} из {ROUNDS.length}
@@ -507,7 +666,7 @@ function RoundIntroScreen({ round, onStart }) {
   );
 }
 
-function QuestionScreen({ question, round, questionIndex, score, selectedAnswer, onAnswer, onNext }) {
+function QuestionScreen({ question, round, questionIndex, score, selectedAnswer, onAnswer, onHome, onNext }) {
   const isAnswered = Boolean(selectedAnswer);
   const isCorrect = selectedAnswer === question.correctAnswer;
 
@@ -518,9 +677,12 @@ function QuestionScreen({ question, round, questionIndex, score, selectedAnswer,
           <p className="round-name">Раунд {round.id} — {round.title}</p>
           <h1>Вопрос {questionIndex + 1} из {QUESTIONS_PER_ROUND}</h1>
         </div>
-        <div className="score-pill">
-          <ShieldCheck size={18} />
-          {score} / {QUESTIONS_PER_ROUND}
+        <div className="question-toolbar">
+          <HomeButton onClick={onHome} />
+          <div className="score-pill">
+            <ShieldCheck size={18} />
+            {score} / {QUESTIONS_PER_ROUND}
+          </div>
         </div>
       </header>
 
@@ -591,11 +753,14 @@ function ProgressBar({ value, max }) {
   );
 }
 
-function RoundResultScreen({ round, score, onRepeat, onNextRound }) {
+function RoundResultScreen({ round, score, onHome, onRepeat, onNextRound }) {
   const result = getRoundResult(score);
 
   return (
     <div className="screen centered-screen fade-in">
+      <div className="screen-top-actions">
+        <HomeButton onClick={onHome} />
+      </div>
       <div className={`result-icon ${result.passed ? 'result-icon-good' : 'result-icon-bad'}`}>
         {result.passed ? <Award size={34} /> : <RotateCcw size={34} />}
       </div>

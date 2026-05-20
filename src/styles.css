@@ -334,6 +334,64 @@ h1 {
   justify-self: start;
 }
 
+.resume-card {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid rgba(87, 227, 195, 0.34);
+  border-radius: 8px;
+  color: #eefbff;
+  background: rgba(87, 227, 195, 0.11);
+}
+
+.resume-card h2 {
+  margin-bottom: 8px;
+  color: #ffffff;
+  font-size: 1.28rem;
+}
+
+.resume-card p {
+  margin-bottom: 0;
+  color: #d9e7ef;
+  line-height: 1.55;
+}
+
+.resume-kicker {
+  color: #b6fff0;
+  font-size: 0.84rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.resume-actions,
+.restart-confirmation div,
+.screen-top-actions,
+.question-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.resume-actions,
+.restart-confirmation div {
+  flex-wrap: wrap;
+}
+
+.restart-confirmation {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(244, 181, 71, 0.34);
+  border-radius: 8px;
+  background: rgba(244, 181, 71, 0.12);
+}
+
+.restart-confirmation p {
+  color: #fff1c9;
+  font-weight: 750;
+}
+
 .form-message {
   margin-bottom: 0;
   color: #d9e7ef;
@@ -402,6 +460,11 @@ h1 {
   color: #ffffff;
 }
 
+.screen-top-actions {
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+
 .round-description {
   max-width: 640px;
   margin-right: auto;
@@ -436,6 +499,16 @@ h1 {
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
+}
+
+.question-toolbar {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.home-button {
+  min-height: 44px;
+  padding: 10px 14px;
 }
 
 .question-header h1 {
@@ -793,6 +866,10 @@ h1 {
     align-self: flex-start;
   }
 
+  .question-toolbar {
+    justify-content: flex-start;
+  }
+
   .leaderboard-row {
     grid-template-columns: 48px minmax(0, 1fr) 70px;
   }
@@ -861,8 +938,25 @@ h1 {
 
   .primary-button,
   .secondary-button,
-  .saved-player-button {
+  .saved-player-button,
+  .home-button,
+  .resume-actions .primary-button,
+  .resume-actions .secondary-button,
+  .restart-confirmation .primary-button,
+  .restart-confirmation .secondary-button {
     width: 100%;
+  }
+
+  .screen-top-actions,
+  .question-toolbar,
+  .resume-actions,
+  .restart-confirmation div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .screen-top-actions {
+    margin-bottom: 14px;
   }
 
   .leaderboard-panel {
