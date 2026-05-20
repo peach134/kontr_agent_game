@@ -586,6 +586,12 @@ h1 {
   }
 
   .hero-copy,
+  .centered-screen,
+  .final-screen {
+    background: rgba(9, 33, 54, 0.94);
+  }
+
+  .hero-copy,
   .rules-panel,
   .question-card,
   .feedback-card,
@@ -596,6 +602,32 @@ h1 {
 
   h1 {
     font-size: 2.08rem;
+    line-height: 1.08;
+  }
+
+  .subtitle {
+    font-size: 1.04rem;
+  }
+
+  .intro,
+  .round-description {
+    font-size: 1rem;
+  }
+
+  .notice {
+    gap: 10px;
+    margin: 20px 0;
+    padding: 14px;
+    background: rgba(87, 227, 195, 0.16);
+  }
+
+  .answer-button {
+    min-height: 68px;
+    padding: 16px;
+  }
+
+  .guide-card {
+    min-height: auto;
   }
 
   .primary-button,
