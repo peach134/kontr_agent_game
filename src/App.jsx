@@ -548,6 +548,7 @@ function FinalScreen({ totalScore, onRestart, onRepeatLastRound }) {
           <h2>{rank.title}</h2>
         </div>
       </div>
+      <p className="rank-message">{rank.message}</p>
       <div className="final-message">
         <p>
           Поздравляем! Ты прошёл все 4 раунда игры “Красный флаг или рабочая ситуация?”. Теперь ты не просто
