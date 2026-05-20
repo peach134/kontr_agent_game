@@ -457,9 +457,10 @@ h1 {
 }
 
 .result-icon {
-  display: inline-grid;
+  display: grid;
   width: 76px;
   height: 76px;
+  margin: 0 auto 14px;
   place-items: center;
   border-radius: 8px;
 }
@@ -624,6 +625,12 @@ h1 {
   .answer-button {
     min-height: 68px;
     padding: 16px;
+  }
+
+  .result-icon {
+    width: 58px;
+    height: 58px;
+    margin-bottom: 12px;
   }
 
   .guide-card {

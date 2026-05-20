@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -17,6 +17,142 @@ import { ANSWER_OPTIONS, FINAL_RANKS, GAME_RULE, ROUNDS, validateGameData } from
 
 const PASS_SCORE = 5;
 const QUESTIONS_PER_ROUND = 10;
+const STORAGE_KEY = 'counterparty-risk-game-state-v1';
+const VALID_SCREENS = new Set(['start', 'roundIntro', 'question', 'roundResult', 'final']);
+const VALID_ANSWERS = new Set(ANSWER_OPTIONS.map((option) => option.label));
+
+function createInitialGameState() {
+  return {
+    screen: 'start',
+    currentRoundIndex: 0,
+    currentQuestionIndex: 0,
+    selectedAnswer: null,
+    roundScore: 0,
+    passedRoundScores: {},
+  };
+}
+
+function isIntegerInRange(value, min, max) {
+  return Number.isInteger(value) && value >= min && value <= max;
+}
+
+function sanitizePassedScores(passedRoundScores) {
+  if (!passedRoundScores || typeof passedRoundScores !== 'object' || Array.isArray(passedRoundScores)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(passedRoundScores).filter(([roundId, score]) => {
+      const knownRound = ROUNDS.some((round) => String(round.id) === String(roundId));
+      return knownRound && isIntegerInRange(score, PASS_SCORE, QUESTIONS_PER_ROUND);
+    }),
+  );
+}
+
+function normalizeSavedGameState(value) {
+  if (!value || typeof value !== 'object') {
+    return createInitialGameState();
+  }
+
+  const state = {
+    screen: VALID_SCREENS.has(value.screen) ? value.screen : 'start',
+    currentRoundIndex: isIntegerInRange(value.currentRoundIndex, 0, ROUNDS.length - 1) ? value.currentRoundIndex : 0,
+    currentQuestionIndex: isIntegerInRange(value.currentQuestionIndex, 0, QUESTIONS_PER_ROUND - 1)
+      ? value.currentQuestionIndex
+      : 0,
+    selectedAnswer: value.selectedAnswer === null || VALID_ANSWERS.has(value.selectedAnswer) ? value.selectedAnswer : null,
+    roundScore: isIntegerInRange(value.roundScore, 0, QUESTIONS_PER_ROUND) ? value.roundScore : 0,
+    passedRoundScores: sanitizePassedScores(value.passedRoundScores),
+  };
+
+  if (state.screen === 'final' && Object.keys(state.passedRoundScores).length < ROUNDS.length) {
+    return createInitialGameState();
+  }
+
+  return state;
+}
+
+function getGameStorage() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    return window.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function readGameCookie() {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const cookie = document.cookie
+    .split('; ')
+    .find((item) => item.startsWith(`${STORAGE_KEY}=`));
+
+  if (!cookie) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(cookie.slice(STORAGE_KEY.length + 1));
+  } catch {
+    return null;
+  }
+}
+
+function writeGameCookie(value) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  document.cookie = `${STORAGE_KEY}=${encodeURIComponent(value)}; max-age=2592000; path=/; SameSite=Lax`;
+}
+
+function readSavedGameState() {
+  const storage = getGameStorage();
+
+  if (storage) {
+    try {
+      const value = storage.getItem(STORAGE_KEY);
+
+      if (value) {
+        return value;
+      }
+    } catch {
+      return readGameCookie();
+    }
+  }
+
+  return readGameCookie();
+}
+
+function writeSavedGameState(value) {
+  const storage = getGameStorage();
+
+  if (storage) {
+    try {
+      storage.setItem(STORAGE_KEY, value);
+      return;
+    } catch {
+      writeGameCookie(value);
+      return;
+    }
+  }
+
+  writeGameCookie(value);
+}
+
+function loadSavedGameState() {
+  try {
+    return normalizeSavedGameState(JSON.parse(readSavedGameState()));
+  } catch {
+    return createInitialGameState();
+  }
+}
 
 function getRoundResult(score) {
   if (score <= 4) {
@@ -55,33 +191,38 @@ function getRank(totalScore) {
 }
 
 function App() {
-  const [screen, setScreen] = useState('start');
-  const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState(null);
-  const [roundScore, setRoundScore] = useState(0);
-  const [passedRoundScores, setPassedRoundScores] = useState({});
+  const [gameState, setGameState] = useState(loadSavedGameState);
+  const { screen, currentRoundIndex, currentQuestionIndex, selectedAnswer, roundScore, passedRoundScores } = gameState;
 
   const dataCheck = useMemo(() => validateGameData(), []);
   const currentRound = ROUNDS[currentRoundIndex];
   const currentQuestion = currentRound.questions[currentQuestionIndex];
   const finalScore = Object.values(passedRoundScores).reduce((sum, score) => sum + score, 0);
 
+  useEffect(() => {
+    try {
+      writeSavedGameState(JSON.stringify(gameState));
+    } catch {
+      // If a browser blocks all client storage, the game should still work normally for the current session.
+    }
+  }, [gameState]);
+
   const startGame = () => {
-    setCurrentRoundIndex(0);
-    setCurrentQuestionIndex(0);
-    setSelectedAnswer(null);
-    setRoundScore(0);
-    setPassedRoundScores({});
-    setScreen('roundIntro');
+    setGameState({
+      ...createInitialGameState(),
+      screen: 'roundIntro',
+    });
   };
 
   const startRound = (roundIndex = currentRoundIndex) => {
-    setCurrentRoundIndex(roundIndex);
-    setCurrentQuestionIndex(0);
-    setSelectedAnswer(null);
-    setRoundScore(0);
-    setScreen('question');
+    setGameState((state) => ({
+      ...state,
+      screen: 'question',
+      currentRoundIndex: roundIndex,
+      currentQuestionIndex: 0,
+      selectedAnswer: null,
+      roundScore: 0,
+    }));
   };
 
   const handleAnswer = (answer) => {
@@ -89,20 +230,27 @@ function App() {
       return;
     }
 
-    setSelectedAnswer(answer);
-    if (answer === currentQuestion.correctAnswer) {
-      setRoundScore((score) => score + 1);
-    }
+    setGameState((state) => ({
+      ...state,
+      selectedAnswer: answer,
+      roundScore: answer === currentQuestion.correctAnswer ? state.roundScore + 1 : state.roundScore,
+    }));
   };
 
   const goNext = () => {
     if (currentQuestionIndex < QUESTIONS_PER_ROUND - 1) {
-      setCurrentQuestionIndex((index) => index + 1);
-      setSelectedAnswer(null);
+      setGameState((state) => ({
+        ...state,
+        currentQuestionIndex: state.currentQuestionIndex + 1,
+        selectedAnswer: null,
+      }));
       return;
     }
 
-    setScreen('roundResult');
+    setGameState((state) => ({
+      ...state,
+      screen: 'roundResult',
+    }));
   };
 
   const goNextRound = () => {
@@ -111,18 +259,24 @@ function App() {
       [currentRound.id]: roundScore,
     };
 
-    setPassedRoundScores(successfulScores);
-
     if (currentRoundIndex === ROUNDS.length - 1) {
-      setScreen('final');
+      setGameState((state) => ({
+        ...state,
+        screen: 'final',
+        passedRoundScores: successfulScores,
+      }));
       return;
     }
 
-    setCurrentRoundIndex((index) => index + 1);
-    setCurrentQuestionIndex(0);
-    setSelectedAnswer(null);
-    setRoundScore(0);
-    setScreen('roundIntro');
+    setGameState((state) => ({
+      ...state,
+      screen: 'roundIntro',
+      currentRoundIndex: state.currentRoundIndex + 1,
+      currentQuestionIndex: 0,
+      selectedAnswer: null,
+      roundScore: 0,
+      passedRoundScores: successfulScores,
+    }));
   };
 
   const repeatCurrentRound = () => {
@@ -133,8 +287,15 @@ function App() {
     const lastRoundIndex = ROUNDS.length - 1;
     const updatedScores = { ...passedRoundScores };
     delete updatedScores[ROUNDS[lastRoundIndex].id];
-    setPassedRoundScores(updatedScores);
-    startRound(lastRoundIndex);
+    setGameState((state) => ({
+      ...state,
+      screen: 'question',
+      currentRoundIndex: lastRoundIndex,
+      currentQuestionIndex: 0,
+      selectedAnswer: null,
+      roundScore: 0,
+      passedRoundScores: updatedScores,
+    }));
   };
 
   return (
