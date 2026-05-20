@@ -38,20 +38,11 @@ export function toPublicError(error) {
 
   console.error('Leaderboard API error:', error);
 
-  const debugMessage = [
-    error?.message,
-    error?.details,
-    error?.hint,
-    error?.code ? `code: ${error.code}` : null,
-  ].filter(Boolean).join(' ');
-
   return {
     statusCode: 500,
     payload: {
       error: 'server_error',
-      message: debugMessage
-        ? `Ошибка таблицы лидеров: ${debugMessage}`
-        : 'Не удалось выполнить запрос. Попробуй ещё раз позже.',
+      message: 'Не удалось выполнить запрос. Попробуй ещё раз позже.',
     },
   };
 }
