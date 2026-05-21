@@ -24,19 +24,35 @@ async function requestJson(path, options = {}) {
 }
 
 export async function getLeaderboard(limit = 20) {
-  return requestJson(`/api/leaderboard?limit=${limit}`);
+  const payload = await requestJson(`/api/leaderboard?limit=${limit}`);
+
+  return {
+    entries: Array.isArray(payload?.entries) ? payload.entries : [],
+  };
 }
 
 export async function ensurePlayer(nickname) {
-  return requestJson('/api/player', {
+  const payload = await requestJson('/api/player', {
     method: 'POST',
     body: JSON.stringify({ nickname }),
   });
+
+  if (!payload?.player) {
+    throw new Error('Не удалось подготовить псевдоним. Попробуй ещё раз позже.');
+  }
+
+  return payload;
 }
 
 export async function submitLeaderboardResult({ nickname, totalScore, roundScores }) {
-  return requestJson('/api/result', {
+  const payload = await requestJson('/api/result', {
     method: 'POST',
     body: JSON.stringify({ nickname, totalScore, roundScores }),
   });
+
+  if (!payload?.entry) {
+    throw new Error('Не удалось обновить таблицу лидеров. Попробуй ещё раз позже.');
+  }
+
+  return payload;
 }

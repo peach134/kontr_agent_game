@@ -918,26 +918,32 @@ function LeaderboardPanel({ title, compact = false, highlightNickname }) {
           </div>
           <p>Лучшие результаты игроков по псевдонимам.</p>
         </div>
-        <button className="icon-button" type="button" onClick={loadEntries} aria-label="Обновить таблицу лидеров">
-          <RefreshCw size={18} />
+        <button
+          className="icon-button"
+          type="button"
+          onClick={loadEntries}
+          disabled={state.status === 'loading'}
+          aria-label="Обновить таблицу лидеров"
+        >
+          <RefreshCw className={state.status === 'loading' ? 'spin' : ''} size={18} />
         </button>
       </div>
 
       {state.status === 'loading' && (
-        <div className="leaderboard-state">
+        <div className="leaderboard-state" aria-live="polite">
           <LoaderCircle className="spin" size={18} />
           Загружаем рейтинг...
         </div>
       )}
 
       {state.status === 'error' && (
-        <div className="leaderboard-state leaderboard-state-error">
+        <div className="leaderboard-state leaderboard-state-error" aria-live="polite">
           {state.message}
         </div>
       )}
 
       {state.status === 'success' && state.entries.length === 0 && (
-        <div className="leaderboard-state">Пока здесь пусто. Первый финальный результат станет началом рейтинга.</div>
+        <div className="leaderboard-state" aria-live="polite">Пока здесь пусто. Первый финальный результат станет началом рейтинга.</div>
       )}
 
       {state.status === 'success' && state.entries.length > 0 && (
@@ -949,7 +955,9 @@ function LeaderboardPanel({ title, compact = false, highlightNickname }) {
               }`}
               key={`${entry.place}-${entry.nickname}`}
             >
-              <span className="leaderboard-place">#{entry.place}</span>
+              <span className={`leaderboard-place ${entry.place <= 3 ? 'leaderboard-place-top' : ''}`}>
+                #{entry.place}
+              </span>
               <span className="leaderboard-name">
                 <UserRound size={16} />
                 {entry.nickname}
